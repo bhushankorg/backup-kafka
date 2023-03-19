@@ -1,55 +1,70 @@
-Kafka workflow for creating another cluster
+from confluent_kafka import avro
+from confluent_kafka.avro import AvroProducer
+import time
+
+avro_producer_config = {
+    "bootstrap.servers": "localhost:9092",
+    "schema.registry.url": "http://localhost:8081"
+}
+
+value_schema_str = """
+{
+    "namespace": "com.example.avro",
+    "type": "record",
+    "name": "User",
+    "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "age", "type": "int"}
+    ]
+}
+"""
+
+value_schema = avro.loads(value_schema_str)
+
+avro_producer = AvroProducer(avro_producer_config, default_value_schema=value_schema)
+
+for i in range(10):
+    record_value = {"name": "Person", "age": i*10}
+    avro_producer.produce(topic='avroMessages', value=record_value)
+    time.sleep(2)
+    avro_producer.flush()
+
+print("Messages published successfully!")
 
 
-zookeeper start
-bin/zookeeper-server-start.sh config/zookeeper.properties
 
-kafka server start
-bin/kafka-server-start.sh config/server.properties
+from confluent_kafka.avro import AvroConsumer
+from confluent_kafka.avro.serializer import SerializerError
 
-List the running server ids
-bin/zookeeper-shell.sh localhost:2181 ls /brokers/ids
+# Set Kafka topic and schema registry URL
+topic = 'avroMessages'
+schema_registry_url = 'http://0.0.0.0:8081'
 
-check server logs
-kafka_logs/server_logs
+# Set Avro consumer configuration
+consumer_config = {
+    'bootstrap.servers': 'localhost:9092',
+    'group.id': 'avro-consumer-group',
+    'schema.registry.url': schema_registry_url
+}
 
-Create logs for all new 3 broker servers
-kafka_logs/server_logs_1
-kafka_logs/server_logs_2
-kafka_logs/server_logs_3
+# Create Avro consumer
+consumer = AvroConsumer(consumer_config)
 
-Create and edit new server brokers in config
-In order to edit the new config files 
-1. Change broker id to unique id
-2. Edit location of log directory
-3. Change listeners portNumber
+# Subscribe to Kafka topic
+consumer.subscribe([topic])
 
-cd desktop/kafka_2.13-3.4.0
-bin/kafka-server-start.sh config/server.properties
-bin/kafka-server-start.sh config/server1.properties
-bin/kafka-server-start.sh config/server2.properties
-bin/kafka-server-start.sh config/server3.properties
+# Read and print messages from Kafka topic
+while True:
+    try:
+        msg = consumer.poll(1.0)
+        if msg is None:
+            continue
+        if msg.error():
+            raise SerializerError(msg.error())
+        print(msg.value())
+    except SerializerError as e:
+        print("Message deserialization failed for {}: {}".format(msg, e))
+        break
 
-Create a topic
-bin/kafka-topics.sh --create --topic demo_testing2 --bootstrap-server localhost:9092,localhost:9093,localhost:9094 --replication-factor 1 --partitions 5
-
-Delete Kafka topic
-bin/kafka-topics.sh --delete --topic demo_testing2 --bootstrap-server localhost:9092,localhost:9093,localhost:9094 --replication-factor 1 --partitions 5
-
-Create a producer
-bin/kafka-console-producer.sh --topic demo_testing2 --bootstrap-server localhost:9092,localhost:9093,localhost:9094
-
-Create a consumer
-bin/kafka-console-consumer.sh --topic demo_testing2 --from-beginning --bootstrap-server localhost:9092,localhost:9093,localhost:9094
-
-bin/kafka-topics.sh --create --topic target-topic --bootstrap-server localhost:9093
-bin/kafka-console-consumer.sh --topic target-topic --bootstrap-server localhost:9093
-bin/kafka-console-consumer.sh --topic target-topic --from-beginning --bootstrap-server localhost:9093
-
-./kafka-topics.sh --create --bootstrap-server localhost:9093,localhost:9094 --replication-factor 2 --partitions 2 --topic mirrormakerPOC
-
-./kafka-topics.sh --create --bootstrap-server localhost:9095,localhost:9096 --replication-factor 2 --partitions 2 --topic mirrormakerPOC
-
-./kafka-mirror-maker.sh --consumer.config ../config/sourceCluster1Consumer.config --num.streams 1 --producer.config ../config/targetClusterProducer.config --whitelist=".*"
-
-
+# Close Avro consumer
+consumer.close()
