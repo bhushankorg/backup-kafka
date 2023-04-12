@@ -1,75 +1,41 @@
-Kafka workflow for creating another cluster
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import from_json
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType
 
+spark = SparkSession.builder \
+    .appName("KafkaJSONConsumer") \
+    .getOrCreate()
 
-zookeeper start
-bin/zookeeper-server-start.sh config/zookeeper.properties
+schema = StructType([
+    StructField("name", StringType(), True),
+    StructField("age", IntegerType(), True)
+])
 
-kafka server start
-bin/kafka-server-start.sh config/server.properties
+df = spark \
+  .readStream \
+  .format("kafka") \
+  .option("kafka.bootstrap.servers", "your_connection_string") \
+  .option("subscribe", "your_topic_name") \
+  .option("kafka.sasl.mechanisms", "PLAIN") \
+  .option("kafka.security.protocol", "SASL_SSL") \
+  .option("kafka.sasl.username", "$ConnectionString") \
+  .option("kafka.sasl.password", "your_password_key") \
+  .option("kafka.request.timeout.ms", "60000") \
+  .option("kafka.session.timeout.ms", "30000") \
+  .load()
 
-List the running server ids
-bin/zookeeper-shell.sh localhost:2181 ls /brokers/ids
+df = df.selectExpr("CAST(value AS STRING)")
 
-check server logs
-kafka_logs/server_logs
+parsed_df = df \
+    .select(from_json("value", schema).alias("json")) \
+    .select("json.*")
 
-Create logs for all new 3 broker servers
-kafka_logs/server_logs_1
-kafka_logs/server_logs_2
-kafka_logs/server_logs_3
+parsed_df.printSchema()
 
-Create and edit new server brokers in config
-In order to edit the new config files 
-1. Change broker id to unique id
-2. Edit location of log directory
-3. Change listeners portNumber
+query = parsed_df \
+  .writeStream \
+  .format("console") \
+  .option("truncate", "false") \
+  .start()
 
-cd desktop/kafka_2.13-3.4.0
-bin/kafka-server-start.sh config/server.properties
-bin/kafka-server-start.sh config/server1.properties
-bin/kafka-server-start.sh config/server2.properties
-bin/kafka-server-start.sh config/server3.properties
-
-Create a topic
-bin/kafka-topics.sh --create --topic demo_testing2 --bootstrap-server localhost:9092,localhost:9093,localhost:9094 --replication-factor 1 --partitions 5
-
-Delete Kafka topic
-bin/kafka-topics.sh --delete --topic demo_testing2 --bootstrap-server localhost:9092,localhost:9093,localhost:9094 --replication-factor 1 --partitions 5
-
-Create a producer
-bin/kafka-console-producer.sh --topic demo_testing2 --bootstrap-server localhost:9092,localhost:9093,localhost:9094
-
-Create a consumer
-bin/kafka-console-consumer.sh --topic demo_testing2 --from-beginning --bootstrap-server localhost:9092,localhost:9093,localhost:9094
-
-bin/kafka-topics.sh --create --topic target-topic --bootstrap-server localhost:9093
-bin/kafka-console-consumer.sh --topic target-topic --bootstrap-server localhost:9093
-bin/kafka-console-consumer.sh --topic target-topic --from-beginning --bootstrap-server localhost:9093
-
-./kafka-topics.sh --create --bootstrap-server localhost:9093,localhost:9094 --replication-factor 2 --partitions 2 --topic mirrormakerPOC
-
-./kafka-topics.sh --create --bootstrap-server localhost:9095,localhost:9096 --replication-factor 2 --partitions 2 --topic mirrormakerPOC
-
-./kafka-mirror-maker.sh --consumer.config ../config/sourceCluster1Consumer.config --num.streams 1 --producer.config ../config/targetClusterProducer.config --whitelist=".*"
-
- 
- 
-bin/kafka-topics.sh --create --topic avroMessages --bootstrap-server localhost:9092
-bin/kafka-console-producer.sh --topic avroMessages --bootstrap-server localhost:9092
-bin/kafka-console-consumer.sh --topic avroMessages --from-beginning --bootstrap-server localhost:9092
-
-
-bin/schema-registry-start etc/schema-registry/schema-registry.properties
-
-
-cd desktop/confluent-7.3.2
-$ bin/schema-registry-start.sh etc/schema-registry/schema-registry.properties
-kafka-run-class.sh kafka.tools.ConsoleConsumer \
---bootstrap-server localhost:9092 \
---topic avroMessages \
---from-beginning
-
-bin/kafka-avro-console-consumer --topic avroMessages \
-                              --bootstrap-server localhost:9092 \
-                              --property schema.registry.url=http://0.0.0.0:8081 \
-                              --from-beginning
+query.awaitTermination()
