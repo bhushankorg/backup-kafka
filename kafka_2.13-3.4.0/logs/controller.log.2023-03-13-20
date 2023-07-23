@@ -1,0 +1,4 @@
+[2023-03-13 22:27:16,915] INFO [Controller id=0] Shutting down broker 0 (kafka.controller.KafkaController)
+[2023-03-13 22:27:16,916] DEBUG [Controller id=0] All shutting down brokers: 0 (kafka.controller.KafkaController)
+[2023-03-13 22:27:16,916] DEBUG [Controller id=0] Live brokers: 1 (kafka.controller.KafkaController)
+[2023-03-13 22:28:57,587] INFO [ControllerEventThread controllerId=0] Shutting down (kafka.controller.ControllerEventManager$ControllerEventThread)
